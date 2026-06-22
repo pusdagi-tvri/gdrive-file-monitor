@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Google Drive File Monitor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .header-logo {
+    width: 32px; height: 32px;
+    background: #3b82f6;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .header-title { font-size: 16px; font-weight: 600; color: #f1f5f9; }
+  .header-sub { font-size: 12px; color: #64748b; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; }
+  .status-dot.connected { background: #22c55e; animation: pulse 2s infinite; }
+  .status-dot.scanning { background: #f59e0b; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-text { font-size: 12px; color: #94a3b8; }
+
+  /* ── Layout ── */
+  .layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: #1e293b;
+    border-right: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid #334155;
+  }
+  .sidebar-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+
+  label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px; }
+
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e2e8f0;
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+    font-family: 'Courier New', monospace;
+    transition: border-color 0.15s;
+  }
+  input[type="text"]:focus, input[type="password"]:focus {
+    border-color: #3b82f6;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #cbd5e1;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+  .btn.primary { background: #1d4ed8; border-color: #3b82f6; color: #eff6ff; }
+  .btn.primary:hover { background: #2563eb; }
+  .btn.success { background: #14532d; border-color: #22c55e; color: #bbf7d0; }
+  .btn.danger { background: #7f1d1d; border-color: #f87171; color: #fecaca; }
+  .btn.sm { padding: 5px 10px; font-size: 11px; }
+  .btn-full { width: 100%; }
+
+  .input-row { display: flex; gap: 6px; align-items: flex-start; }
+  .input-row input { flex: 1; }
+
+  .icon-btn {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 16px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .icon-btn:hover { background: #1e3a5f; border-color: #3b82f6; color: #60a5fa; }
+
+  /* Folder list */
+  .folder-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .folder-list::-webkit-scrollbar { width: 4px; }
+  .folder-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+  .folder-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 3px;
+    border: 1px solid transparent;
+    transition: all 0.12s;
+  }
+  .folder-item:hover { background: #1e293b; border-color: #334155; }
+  .folder-item.active {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+  }
+  .folder-icon { font-size: 18px; flex-shrink: 0; }
+  .folder-name {
+    flex: 1;
+    font-size: 13px;
+    color: #cbd5e1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .folder-item.active .folder-name { color: #93c5fd; }
+  .folder-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: #334155;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+  .folder-item.active .folder-badge { background: #1d4ed8; color: #bfdbfe; }
+  .folder-del {
+    font-size: 14px;
+    color: #475569;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    border: none;
+    background: none;
+    line-height: 1;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .folder-item:hover .folder-del { opacity: 1; }
+  .folder-del:hover { color: #f87171; background: #450a0a; }
+
+  /* Sidebar footer */
+  .sidebar-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #334155;
+  }
+
+  /* ── Main ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #0f172a;
+  }
+
+  /* Topbar */
+  .topbar {
+    padding: 14px 20px;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    background: #0f172a;
+  }
+  .topbar-info { flex: 1; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: #f1f5f9; }
+  .topbar-sub { font-size: 12px; color: #475569; margin-top: 2px; font-family: 'Courier New', monospace; }
+
+  /* Stats */
+  .stats-bar {
+    padding: 12px 20px;
+    display: flex;
+    gap: 12px;
+    border-bottom: 1px solid #1e293b;
+    flex-shrink: 0;
+  }
+  .stat-card {
+    flex: 1;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .stat-label { font-size: 11px; color: #475569; margin-bottom: 4px; }
+  .stat-value { font-size: 20px; font-weight: 600; color: #f1f5f9; }
+
+  /* Filter bar */
+  .filter-bar {
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #1e293b;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .chip {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.12s;
+  }
+  .chip:hover { border-color: #3b82f6; color: #93c5fd; }
+  .chip.active { background: #1d4ed8; border-color: #3b82f6; color: #eff6ff; }
+
+  .search-wrap {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .search-input {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e2e8f0;
+    font-size: 12px;
+    padding: 6px 10px 6px 28px;
+    outline: none;
+    width: 180px;
+    font-family: inherit;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 8px center;
+  }
+  .search-input:focus { border-color: #3b82f6; }
+
+  .sort-select {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 11px;
+    padding: 6px 8px;
+    outline: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* File list */
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+  }
+  .file-list::-webkit-scrollbar { width: 6px; }
+  .file-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    margin-bottom: 6px;
+    background: #1e293b;
+    transition: all 0.12s;
+  }
+  .file-row:hover { border-color: #334155; background: #1e3050; }
+
+  .file-icon-wrap {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .file-info { flex: 1; overflow: hidden; }
+  .file-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e2e8f0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 3px;
+  }
+  .type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+  .file-link {
+    font-size: 11px;
+    color: #3b82f6;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .file-link:hover { color: #60a5fa; text-decoration: underline; }
+  .file-right { text-align: right; flex-shrink: 0; min-width: 90px; }
+  .file-size { font-size: 12px; color: #64748b; }
+  .file-date { font-size: 11px; color: #475569; margin-top: 2px; }
+
+  /* Empty / loading states */
+  .center-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #475569;
+    padding: 40px;
+    text-align: center;
+  }
+  .center-state .icon { font-size: 48px; margin-bottom: 4px; }
+  .center-state .title { font-size: 15px; color: #64748b; }
+  .center-state .sub { font-size: 12px; color: #334155; max-width: 300px; line-height: 1.6; }
+
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid #334155;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 999;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { border-color: #f87171; color: #fca5a5; }
+  .toast.ok { border-color: #22c55e; color: #86efac; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-logo">📁</div>
+  <div>
+    <div class="header-title">Drive Monitor</div>
+    <div class="header-sub">Monitor file Google Drive secara real-time</div>
+  </div>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Belum terhubung</span>
+  </div>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- API Key -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Koneksi Google Drive</div>
+      <label>API Key</label>
+      <input type="password" id="apiKey" placeholder="AIzaSy..." />
+      <div style="margin-top:8px">
+        <button class="btn btn-full" id="connectBtn" onclick="connectDrive()">
+          🔗 Hubungkan ke Drive
+        </button>
+      </div>
+    </div>
+
+    <!-- Add folder -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Tambah Folder</div>
+      <label>ID Folder</label>
+      <div class="input-row">
+        <input type="text" id="folderIdInput" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs" />
+        <button class="icon-btn" onclick="addFolder()" title="Tambah">➕</button>
+      </div>
+      <div style="margin-top:8px">
+        <label>Nama folder (opsional)</label>
+        <input type="text" id="folderNameInput" placeholder="Nama folder..." />
+      </div>
+    </div>
+
+    <!-- Folder list -->
+    <div class="folder-list" id="folderList">
+      <div style="padding:20px 8px;text-align:center;font-size:12px;color:#334155;">
+        Belum ada folder dipantau
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <button class="btn btn-full" onclick="loadDemoData()">
+        🧪 Coba Data Demo
+      </button>
+      <div style="margin-top:8px">
+        <button class="btn btn-full sm" onclick="refreshAll()" id="refreshAllBtn">
+          🔄 Refresh Semua
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Main content -->
+  <div class="main" id="mainPanel">
+    <div class="center-state" id="emptyMain">
+      <div class="icon">📂</div>
+      <div class="title">Pilih atau tambah folder</div>
+      <div class="sub">Masukkan ID folder Google Drive di panel kiri, atau coba data demo untuk melihat tampilan aplikasi.</div>
+      <button class="btn primary" onclick="loadDemoData()" style="margin-top:12px">🧪 Coba Data Demo</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const S = {
+  folders: [],
+  active: null,
+  files: {},
+  filter: 'all',
+  apiKey: '',
+  connected: false,
+  scanning: false,
+};
+
+const TYPES = {
+  'application/vnd.google-apps.document':        { label:'Docs',   bg:'#1e3a5f', color:'#93c5fd', icon:'📄', cat:'doc' },
+  'application/vnd.google-apps.spreadsheet':     { label:'Sheets', bg:'#14532d', color:'#86efac', icon:'📊', cat:'sheet' },
+  'application/vnd.google-apps.presentation':    { label:'Slides', bg:'#431407', color:'#fdba74', icon:'📑', cat:'doc' },
+  'application/vnd.google-apps.form':            { label:'Form',   bg:'#4a044e', color:'#f0abfc', icon:'📋', cat:'doc' },
+  'application/pdf':                             { label:'PDF',    bg:'#7f1d1d', color:'#fca5a5', icon:'📕', cat:'pdf' },
+  'image/jpeg':                                  { label:'JPG',    bg:'#713f12', color:'#fcd34d', icon:'🖼️', cat:'img' },
+  'image/png':                                   { label:'PNG',    bg:'#713f12', color:'#fcd34d', icon:'🖼️', cat:'img' },
+  'image/gif':                                   { label:'GIF',    bg:'#713f12', color:'#fcd34d', icon:'🖼️', cat:'img' },
+  'image/webp':                                  { label:'WebP',   bg:'#713f12', color:'#fcd34d', icon:'🖼️', cat:'img' },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':   { label:'DOCX', bg:'#1e3a5f', color:'#93c5fd', icon:'📝', cat:'doc' },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':         { label:'XLSX', bg:'#14532d', color:'#86efac', icon:'📊', cat:'sheet' },
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': { label:'PPTX', bg:'#431407', color:'#fdba74', icon:'📑', cat:'doc' },
+  'application/zip':     { label:'ZIP',  bg:'#1e293b', color:'#94a3b8', icon:'🗜️', cat:'other' },
+  'text/plain':          { label:'TXT',  bg:'#1e293b', color:'#94a3b8', icon:'📃', cat:'other' },
+  'text/csv':            { label:'CSV',  bg:'#14532d', color:'#86efac', icon:'📊', cat:'sheet' },
+  'video/mp4':           { label:'MP4',  bg:'#4a044e', color:'#f0abfc', icon:'🎬', cat:'other' },
+  'audio/mpeg':          { label:'MP3',  bg:'#1e1b4b', color:'#a5b4fc', icon:'🎵', cat:'other' },
+};
+
+function getType(mime) {
+  if (TYPES[mime]) return TYPES[mime];
+  if (mime && mime.startsWith('image/')) return { label:'IMG', bg:'#713f12', color:'#fcd34d', icon:'🖼️', cat:'img' };
+  if (mime && mime.startsWith('video/')) return { label:'VID', bg:'#4a044e', color:'#f0abfc', icon:'🎬', cat:'other' };
+  const ext = (mime || '').split('/')[1]?.toUpperCase().slice(0,5) || 'FILE';
+  return { label: ext, bg:'#1e293b', color:'#94a3b8', icon:'📁', cat:'other' };
+}
+
+function fmtSize(bytes) {
+  if (!bytes || bytes === '0') return '—';
+  const n = parseInt(bytes);
+  if (isNaN(n) || n === 0) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso), now = new Date();
+  const sec = (now - d) / 1000;
+  if (sec < 60) return 'baru saja';
+  if (sec < 3600) return Math.floor(sec/60) + ' mnt lalu';
+  if (sec < 86400) return Math.floor(sec/3600) + ' jam lalu';
+  if (sec < 604800) return Math.floor(sec/86400) + ' hari lalu';
+  return d.toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function toast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' '+type : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function setStatus(state) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = 'status-dot ' + (state || '');
+  const map = { connected:'🟢 Terhubung ke Drive', scanning:'🟡 Memindai...', demo:'🟡 Mode Demo', '':'⚫ Belum terhubung' };
+  txt.textContent = map[state] || txt.textContent;
+}
+
+function connectDrive() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) { toast('Masukkan API Key terlebih dahulu', 'error'); return; }
+  S.apiKey = key;
+  S.connected = true;
+  const btn = document.getElementById('connectBtn');
+  btn.textContent = '✅ Terhubung';
+  btn.classList.add('success');
+  setStatus('connected');
+  toast('Berhasil terhubung ke Google Drive', 'ok');
+  S.folders.forEach(f => fetchFolder(f.id));
+}
+
+function addFolder() {
+  const id = document.getElementById('folderIdInput').value.trim();
+  const name = document.getElementById('folderNameInput').value.trim();
+  if (!id) { toast('Masukkan ID folder terlebih dahulu', 'error'); return; }
+  if (S.folders.find(f => f.id === id)) { toast('Folder sudah ditambahkan', 'error'); return; }
+
+  const folder = { id, name: name || 'Folder ' + (S.folders.length + 1) };
+  S.folders.push(folder);
+  S.files[id] = [];
+
+  document.getElementById('folderIdInput').value = '';
+  document.getElementById('folderNameInput').value = '';
+
+  renderSidebar();
+  selectFolder(id);
+
+  if (S.connected) fetchFolder(id);
+  else toast('Hubungkan API Key untuk memuat file', '');
+}
+
+async function fetchFolder(folderId) {
+  if (!S.apiKey) return;
+  S.scanning = true;
+  setStatus('scanning');
+
+  try {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+    const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime,webViewLink,createdTime)');
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&key=${S.apiKey}&pageSize=1000&orderBy=modifiedTime+desc`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error.message);
+
+    S.files[folderId] = data.files || [];
+    const folder = S.folders.find(f => f.id === folderId);
+    if (folder) folder.fileCount = S.files[folderId].length;
+
+    toast(`✅ ${S.files[folderId].length} file dimuat`, 'ok');
+  } catch (e) {
+    S.files[folderId] = [];
+    toast('❌ Gagal: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    S.scanning = false;
+    setStatus(S.connected ? 'connected' : 'demo');
+    renderSidebar();
+    if (S.active === folderId) renderMain();
+  }
+}
+
+function refreshAll() {
+  if (!S.connected) { toast('Hubungkan API Key terlebih dahulu', 'error'); return; }
+  S.folders.forEach(f => fetchFolder(f.id));
+}
+
+function selectFolder(id) {
+  S.active = id;
+  renderSidebar();
+  renderMain();
+}
+
+function deleteFolder(id, e) {
+  e.stopPropagation();
+  S.folders = S.folders.filter(f => f.id !== id);
+  delete S.files[id];
+  if (S.active === id) {
+    S.active = S.folders[0]?.id || null;
+  }
+  renderSidebar();
+  renderMain();
+}
+
+function renderSidebar() {
+  const el = document.getElementById('folderList');
+  if (!S.folders.length) {
+    el.innerHTML = '<div style="padding:20px 8px;text-align:center;font-size:12px;color:#334155;">Belum ada folder dipantau</div>';
+    return;
+  }
+  el.innerHTML = S.folders.map(f => {
+    const count = (S.files[f.id] || []).length;
+    return `
+      <div class="folder-item ${S.active === f.id ? 'active' : ''}" onclick="selectFolder('${f.id}')">
+        <span class="folder-icon">📁</span>
+        <span class="folder-name" title="${f.id}">${f.name}</span>
+        <span class="folder-badge">${count}</span>
+        <button class="folder-del" onclick="deleteFolder('${f.id}', event)" title="Hapus">✕</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMain() {
+  const panel = document.getElementById('mainPanel');
+
+  if (!S.active) {
+    panel.innerHTML = `
+      <div class="center-state" id="emptyMain">
+        <div class="icon">📂</div>
+        <div class="title">Pilih atau tambah folder</div>
+        <div class="sub">Masukkan ID folder Google Drive di panel kiri, atau coba data demo.</div>
+        <button class="btn primary" onclick="loadDemoData()" style="margin-top:12px">🧪 Coba Data Demo</button>
+      </div>`;
+    return;
+  }
+
+  const folder = S.folders.find(f => f.id === S.active);
+  if (!folder) return;
+
+  const allFiles = S.files[S.active] || [];
+  const q = (panel.querySelector('#searchInp')?.value || '').toLowerCase();
+  const filter = panel.querySelector('.chip.active')?.dataset.filter || 'all';
+  const sort = panel.querySelector('#sortSel')?.value || 'date-desc';
+
+  // Build HTML structure
+  panel.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-info">
+        <div class="topbar-title">📁 ${folder.name}</div>
+        <div class="topbar-sub">${folder.id}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn sm" onclick="fetchFolder('${folder.id}')">🔄 Refresh</button>
+        <a href="https://drive.google.com/drive/folders/${folder.id}" target="_blank" class="btn sm">🔗 Buka di Drive</a>
+      </div>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-card"><div class="stat-label">Total File</div><div class="stat-value" id="statTotal">—</div></div>
+      <div class="stat-card"><div class="stat-label">Total Ukuran</div><div class="stat-value" id="statSize">—</div></div>
+      <div class="stat-card"><div class="stat-label">Terakhir Diubah</div><div class="stat-value" id="statDate" style="font-size:14px;padding-top:3px;">—</div></div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="chip ${filter==='all'?'active':''}" data-filter="all" onclick="applyFilter(this)">Semua</button>
+      <button class="chip ${filter==='doc'?'active':''}" data-filter="doc" onclick="applyFilter(this)">📄 Dokumen</button>
+      <button class="chip ${filter==='sheet'?'active':''}" data-filter="sheet" onclick="applyFilter(this)">📊 Spreadsheet</button>
+      <button class="chip ${filter==='img'?'active':''}" data-filter="img" onclick="applyFilter(this)">🖼️ Gambar</button>
+      <button class="chip ${filter==='pdf'?'active':''}" data-filter="pdf" onclick="applyFilter(this)">📕 PDF</button>
+      <button class="chip ${filter==='other'?'active':''}" data-filter="other" onclick="applyFilter(this)">📦 Lainnya</button>
+      <div class="search-wrap">
+        <input class="search-input" id="searchInp" placeholder="Cari nama file..." oninput="renderFileList()" value="${q}" />
+        <select class="sort-select" id="sortSel" onchange="renderFileList()">
+          <option value="date-desc" ${sort==='date-desc'?'selected':''}>Terbaru dulu</option>
+          <option value="date-asc" ${sort==='date-asc'?'selected':''}>Terlama dulu</option>
+          <option value="name-asc" ${sort==='name-asc'?'selected':''}>Nama A-Z</option>
+          <option value="name-desc" ${sort==='name-desc'?'selected':''}>Nama Z-A</option>
+          <option value="size-desc" ${sort==='size-desc'?'selected':''}>Ukuran terbesar</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+  `;
+
+  renderFileList();
+}
+
+function applyFilter(el) {
+  document.querySelectorAll('#mainPanel .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderFileList();
+}
+
+function renderFileList() {
+  const panel = document.getElementById('mainPanel');
+  const listEl = document.getElementById('fileList');
+  if (!listEl || !S.active) return;
+
+  const allFiles = S.files[S.active] || [];
+  const q = (document.getElementById('searchInp')?.value || '').toLowerCase();
+  const filter = panel.querySelector('.chip.active')?.dataset.filter || 'all';
+  const sort = document.getElementById('sortSel')?.value || 'date-desc';
+
+  // Update stats
+  const totalSize = allFiles.reduce((s, f) => s + (parseInt(f.size) || 0), 0);
+  const latest = allFiles.length > 0 ? allFiles.reduce((a, b) =>
+    new Date(a.modifiedTime) > new Date(b.modifiedTime) ? a : b) : null;
+
+  if (document.getElementById('statTotal')) document.getElementById('statTotal').textContent = allFiles.length;
+  if (document.getElementById('statSize')) document.getElementById('statSize').textContent = fmtSize(totalSize) || '—';
+  if (document.getElementById('statDate')) document.getElementById('statDate').textContent = latest ? fmtDate(latest.modifiedTime) : '—';
+
+  if (S.scanning) {
+    listEl.innerHTML = `<div class="center-state"><div class="spinner"></div><div class="title">Memuat file...</div></div>`;
+    return;
+  }
+
+  let files = allFiles.filter(f => {
+    const t = getType(f.mimeType);
+    const matchQ = !q || f.name.toLowerCase().includes(q);
+    const matchF = filter === 'all' || t.cat === filter;
+    return matchQ && matchF;
+  });
+
+  files.sort((a, b) => {
+    if (sort === 'date-desc') return new Date(b.modifiedTime) - new Date(a.modifiedTime);
+    if (sort === 'date-asc')  return new Date(a.modifiedTime) - new Date(b.modifiedTime);
+    if (sort === 'name-asc')  return a.name.localeCompare(b.name, 'id');
+    if (sort === 'name-desc') return b.name.localeCompare(a.name, 'id');
+    if (sort === 'size-desc') return (parseInt(b.size)||0) - (parseInt(a.size)||0);
+    return 0;
+  });
+
+  if (files.length === 0) {
+    listEl.innerHTML = `<div class="center-state">
+      <div class="icon">🔍</div>
+      <div class="title">${allFiles.length === 0 ? 'Folder kosong' : 'Tidak ada hasil'}</div>
+      <div class="sub">${allFiles.length === 0 ? 'Folder ini kosong atau tidak dapat diakses.' : 'Coba ubah filter atau kata kunci pencarian.'}</div>
+    </div>`;
+    return;
+  }
+
+  listEl.innerHTML = files.map(f => {
+    const t = getType(f.mimeType);
+    const link = f.webViewLink
+      ? `<a class="file-link" href="${f.webViewLink}" target="_blank">🔗 Buka</a>`
+      : '';
+    return `
+      <div class="file-row">
+        <div class="file-icon-wrap" style="background:${t.bg};">${t.icon}</div>
+        <div class="file-info">
+          <div class="file-name" title="${f.name}">${f.name}</div>
+          <div class="file-meta">
+            <span class="type-badge" style="background:${t.bg};color:${t.color};">${t.label}</span>
+            ${link}
+          </div>
+        </div>
+        <div class="file-right">
+          <div class="file-size">${fmtSize(f.size)}</div>
+          <div class="file-date">${fmtDate(f.modifiedTime)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function loadDemoData() {
+  S.connected = false;
+  S.apiKey = '';
+  setStatus('demo');
+
+  const now = new Date();
+  const ago = h => new Date(now - h * 3600000).toISOString();
+
+  const demoFolders = [
+    { id: 'demo-laporan', name: '📊 Laporan Bulanan' },
+    { id: 'demo-aset',    name: '🎨 Aset Desain' },
+    { id: 'demo-data',    name: '📋 Data Tim' },
+  ];
+
+  S.files['demo-laporan'] = [
+    { id:'d1', name:'Laporan Q1 2025.pdf', mimeType:'application/pdf', size:'2097152', modifiedTime: ago(1), webViewLink:'#' },
+    { id:'d2', name:'Ringkasan Keuangan Maret.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size:'524288', modifiedTime: ago(4) },
+    { id:'d3', name:'Presentasi Review Q1', mimeType:'application/vnd.google-apps.presentation', size:'', modifiedTime: ago(8), webViewLink:'#' },
+    { id:'d4', name:'Catatan Rapat Bulanan', mimeType:'application/vnd.google-apps.document', size:'', modifiedTime: ago(20), webViewLink:'#' },
+    { id:'d5', name:'Dashboard KPI April', mimeType:'application/vnd.google-apps.spreadsheet', size:'', modifiedTime: ago(36), webViewLink:'#' },
+    { id:'d6', name:'Target Penjualan Q2.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size:'204800', modifiedTime: ago(72) },
+  ];
+
+  S.files['demo-aset'] = [
+    { id:'a1', name:'Logo Perusahaan Final.png', mimeType:'image/png', size:'4194304', modifiedTime: ago(0.5), webViewLink:'#' },
+    { id:'a2', name:'Banner Sosmed Mei.jpg', mimeType:'image/jpeg', size:'1048576', modifiedTime: ago(3) },
+    { id:'a3', name:'Template Presentasi 2025', mimeType:'application/vnd.google-apps.presentation', size:'', modifiedTime: ago(48), webViewLink:'#' },
+    { id:'a4', name:'Panduan Brand Identity.pdf', mimeType:'application/pdf', size:'8388608', modifiedTime: ago(120) },
+    { id:'a5', name:'Ikon UI Set.zip', mimeType:'application/zip', size:'2621440', modifiedTime: ago(170) },
+    { id:'a6', name:'Video Promo Q2.mp4', mimeType:'video/mp4', size:'52428800', modifiedTime: ago(5) },
+    { id:'a7', name:'Foto Tim Marketing.jpg', mimeType:'image/jpeg', size:'3145728', modifiedTime: ago(15) },
+  ];
+
+  S.files['demo-data'] = [
+    { id:'t1', name:'Database Pelanggan April', mimeType:'application/vnd.google-apps.spreadsheet', size:'', modifiedTime: ago(0.25), webViewLink:'#' },
+    { id:'t2', name:'Formulir Onboarding Karyawan', mimeType:'application/vnd.google-apps.form', size:'', modifiedTime: ago(30), webViewLink:'#' },
+    { id:'t3', name:'SOP Operasional 2025', mimeType:'application/vnd.google-apps.document', size:'', modifiedTime: ago(90), webViewLink:'#' },
+    { id:'t4', name:'Export Penjualan Maret.csv', mimeType:'text/csv', size:'358400', modifiedTime: ago(10) },
+    { id:'t5', name:'Absensi Tim April.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size:'102400', modifiedTime: ago(2) },
+  ];
+
+  demoFolders.forEach(f => {
+    if (!S.folders.find(x => x.id === f.id)) {
+      S.folders.push({ ...f, fileCount: S.files[f.id].length });
+    }
+  });
+
+  S.active = 'demo-laporan';
+  renderSidebar();
+  renderMain();
+  toast('Data demo dimuat. Masukkan API Key untuk Drive asli.', '');
+}
+
+// Init
+renderSidebar();
+</script>
+</body>
+</html>
