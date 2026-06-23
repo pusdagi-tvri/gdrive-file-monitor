@@ -116,6 +116,17 @@
       overflow: hidden;
     }
 
+    /* Area scroll: semua konten kecuali footer */
+    .sidebar-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .sidebar-body::-webkit-scrollbar { width: 3px; }
+    .sidebar-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    .sidebar-body::-webkit-scrollbar-track { background: transparent; }
+
     .sidebar-section {
       padding: 14px 16px;
       border-bottom: 1px solid #334155;
@@ -244,18 +255,8 @@
 
     /* Folder list */
     .folder-list {
-      flex: 1;
-      overflow-y: auto;
       padding: 8px;
-    }
-
-    .folder-list::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .folder-list::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 2px;
+      min-height: 60px;
     }
 
     .folder-item {
@@ -772,9 +773,8 @@
       /* Toast bottom safe area */
       .toast { bottom: 80px; width: calc(100% - 32px); max-width: 360px; }
 
-      /* Sidebar scrollable sections */
-      .sidebar { overflow-y: auto; }
-      .folder-list { min-height: 80px; max-height: 220px; }
+      /* Sidebar on mobile: drawer height uses sidebar-body */
+      .sidebar-body { max-height: calc(100dvh - 120px); }
     }
 
     @media (max-width: 480px) {
@@ -849,6 +849,9 @@
 
     <!-- Sidebar -->
     <div class="sidebar" id="sidebar">
+
+      <!-- Scrollable body -->
+      <div class="sidebar-body">
 
       <!-- API Key -->
       <div class="sidebar-section">
@@ -927,6 +930,8 @@
           Belum ada folder dipantau
         </div>
       </div>
+
+      </div><!-- /sidebar-body -->
 
       <!-- Footer -->
       <div class="sidebar-footer">
