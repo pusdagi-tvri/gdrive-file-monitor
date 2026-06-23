@@ -787,6 +787,41 @@
       .file-right { min-width: 60px; }
     }
 
+    /* Breadcrumb */
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: #475569;
+      margin-top: 4px;
+    }
+    .breadcrumb-item {
+      color: #3b82f6;
+      cursor: pointer;
+      text-decoration: none;
+      transition: color 0.12s;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .breadcrumb-item:hover { color: #60a5fa; text-decoration: underline; }
+    .breadcrumb-item.current { color: #64748b; cursor: default; pointer-events: none; }
+    .breadcrumb-sep { color: #334155; flex-shrink: 0; }
+
+    /* Subfolder row styling */
+    .file-row.is-folder {
+      cursor: pointer;
+      border-color: #1e3a5f;
+    }
+    .file-row.is-folder:hover {
+      border-color: #3b82f6;
+      background: #1a2a4a;
+    }
+    .file-row.is-folder .file-name { color: #93c5fd; }
+
     #txtPreviewList::-webkit-scrollbar { width: 3px; }
     #txtPreviewList::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
 
@@ -972,9 +1007,12 @@
       apiKey: '',
       connected: false,
       scanning: false,
+      // breadcrumb per root folder: { rootId: [{id, name}, ...] }
+      breadcrumb: {},
     };
 
     const TYPES = {
+      'application/vnd.google-apps.folder': { label: 'Folder', bg: '#1e3a5f', color: '#93c5fd', icon: '📁', cat: 'folder' },
       'application/vnd.google-apps.document': { label: 'Docs', bg: '#1e3a5f', color: '#93c5fd', icon: '📄', cat: 'doc' },
       'application/vnd.google-apps.spreadsheet': { label: 'Sheets', bg: '#14532d', color: '#86efac', icon: '📊', cat: 'sheet' },
       'application/vnd.google-apps.presentation': { label: 'Slides', bg: '#431407', color: '#fdba74', icon: '📑', cat: 'doc' },
@@ -1111,6 +1149,8 @@
 
     function selectFolder(id) {
       S.active = id;
+      // Reset breadcrumb to root when switching folders
+      S.breadcrumb[id] = null;
       renderSidebar();
       renderMain();
       if (window.innerWidth <= 768) closeSidebar();
@@ -1163,21 +1203,31 @@
       const folder = S.folders.find(f => f.id === S.active);
       if (!folder) return;
 
-      const allFiles = S.files[S.active] || [];
+      const activeFolderId = getActiveFolderId();
+      const allFiles = S.files[activeFolderId] || [];
       const q = (panel.querySelector('#searchInp')?.value || '').toLowerCase();
       const filter = panel.querySelector('.chip.active')?.dataset.filter || 'all';
       const sort = panel.querySelector('#sortSel')?.value || 'date-desc';
 
       // Build HTML structure
+      const crumbs = S.breadcrumb[S.active] || [];
+      const crumbHtml = buildBreadcrumb(crumbs);
+      const canGoBack = crumbs.length > 1;
+      const displayName = canGoBack ? crumbs[crumbs.length - 1].name : folder.name;
+      const activeFolderId2 = getActiveFolderId();
+
       panel.innerHTML = `
     <div class="topbar">
       <div class="topbar-info">
-        <div class="topbar-title">📁 ${folder.name}</div>
-        <div class="topbar-sub">${folder.id}</div>
+        <div class="topbar-title">
+          ${canGoBack ? `<button onclick="navigateBack()" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-size:13px;padding:0 6px 0 0;vertical-align:middle;" title="Kembali">&#8592;</button>` : ''}
+          📁 ${displayName}
+        </div>
+        <div class="breadcrumb">${crumbHtml}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-        <button class="btn sm" onclick="fetchFolder('${folder.id}')">&#128260; Refresh</button>
-        <a href="https://drive.google.com/drive/folders/${folder.id}" target="_blank" class="btn sm">&#128279; Drive</a>
+        <button class="btn sm" onclick="fetchCurrentFolder()">&#128260; Refresh</button>
+        <a href="https://drive.google.com/drive/folders/${activeFolderId2}" class="btn sm">&#128279; Drive</a>
       </div>
     </div>
 
@@ -1223,7 +1273,8 @@
       const listEl = document.getElementById('fileList');
       if (!listEl || !S.active) return;
 
-      const allFiles = S.files[S.active] || [];
+      const activeFolderId = getActiveFolderId();
+      const allFiles = S.files[activeFolderId] || [];
       const q = (document.getElementById('searchInp')?.value || '').toLowerCase();
       const filter = panel.querySelector('.chip.active')?.dataset.filter || 'all';
       const sort = document.getElementById('sortSel')?.value || 'date-desc';
@@ -1250,6 +1301,11 @@
       });
 
       files.sort((a, b) => {
+        // Folders always first
+        const aFolder = a.mimeType === 'application/vnd.google-apps.folder';
+        const bFolder = b.mimeType === 'application/vnd.google-apps.folder';
+        if (aFolder !== bFolder) return aFolder ? -1 : 1;
+
         if (sort === 'date-desc') return new Date(b.modifiedTime) - new Date(a.modifiedTime);
         if (sort === 'date-asc') return new Date(a.modifiedTime) - new Date(b.modifiedTime);
         if (sort === 'name-asc') return a.name.localeCompare(b.name, 'id');
@@ -1269,6 +1325,27 @@
 
       listEl.innerHTML = files.map(f => {
         const t = getType(f.mimeType);
+        const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
+
+        if (isFolder) {
+          const safeName = f.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          return `
+      <div class="file-row is-folder" onclick="navigateInto('${f.id}', '${safeName}')">
+        <div class="file-icon-wrap" style="background:${t.bg};">${t.icon}</div>
+        <div class="file-info">
+          <div class="file-name">${f.name}</div>
+          <div class="file-meta">
+            <span class="type-badge" style="background:${t.bg};color:${t.color};">Folder</span>
+            <span style="font-size:11px;color:#475569;">Klik untuk buka</span>
+          </div>
+        </div>
+        <div class="file-right">
+          <div class="file-size">—</div>
+          <div class="file-date">${fmtDate(f.modifiedTime)}</div>
+        </div>
+      </div>`;
+        }
+
         const link = f.webViewLink
           ? `<a class="file-link" href="${f.webViewLink}" target="_blank">🔗 Buka</a>`
           : '';
@@ -1286,8 +1363,7 @@
           <div class="file-size">${fmtSize(f.size)}</div>
           <div class="file-date">${fmtDate(f.modifiedTime)}</div>
         </div>
-      </div>
-    `;
+      </div>`;
       }).join('');
     }
 
@@ -1306,12 +1382,25 @@
       ];
 
       S.files['demo-laporan'] = [
+        { id: 'sub-arsip', name: 'Arsip 2024', mimeType: 'application/vnd.google-apps.folder', size: '', modifiedTime: ago(2) },
         { id: 'd1', name: 'Laporan Q1 2025.pdf', mimeType: 'application/pdf', size: '2097152', modifiedTime: ago(1), webViewLink: '#' },
         { id: 'd2', name: 'Ringkasan Keuangan Maret.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: '524288', modifiedTime: ago(4) },
         { id: 'd3', name: 'Presentasi Review Q1', mimeType: 'application/vnd.google-apps.presentation', size: '', modifiedTime: ago(8), webViewLink: '#' },
         { id: 'd4', name: 'Catatan Rapat Bulanan', mimeType: 'application/vnd.google-apps.document', size: '', modifiedTime: ago(20), webViewLink: '#' },
         { id: 'd5', name: 'Dashboard KPI April', mimeType: 'application/vnd.google-apps.spreadsheet', size: '', modifiedTime: ago(36), webViewLink: '#' },
         { id: 'd6', name: 'Target Penjualan Q2.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: '204800', modifiedTime: ago(72) },
+      ];
+
+      S.files['sub-arsip'] = [
+        { id: 'sub-sub-q4', name: 'Data Q4', mimeType: 'application/vnd.google-apps.folder', size: '', modifiedTime: ago(100) },
+        { id: 'sa1', name: 'Laporan Tahunan 2024.pdf', mimeType: 'application/pdf', size: '5242880', modifiedTime: ago(96), webViewLink: '#' },
+        { id: 'sa2', name: 'Rekap Keuangan 2024.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: '307200', modifiedTime: ago(120) },
+      ];
+
+      S.files['sub-sub-q4'] = [
+        { id: 'sq1', name: 'Laporan Oktober.pdf', mimeType: 'application/pdf', size: '1048576', modifiedTime: ago(200), webViewLink: '#' },
+        { id: 'sq2', name: 'Laporan November.pdf', mimeType: 'application/pdf', size: '1048576', modifiedTime: ago(230), webViewLink: '#' },
+        { id: 'sq3', name: 'Laporan Desember.pdf', mimeType: 'application/pdf', size: '1048576', modifiedTime: ago(260), webViewLink: '#' },
       ];
 
       S.files['demo-aset'] = [
@@ -1374,6 +1463,106 @@
       }
     }
     window.addEventListener('resize', handleResize);
+    // ─────────────────────────────────────────────────────────────
+
+    // ── Subfolder Navigation ─────────────────────────────────────
+    function getRootId() {
+      // Returns the sidebar root folder id (before any subfolder navigation)
+      return S.active;
+    }
+
+    function getActiveFolderId() {
+      const crumbs = S.breadcrumb[S.active];
+      if (crumbs && crumbs.length > 0) return crumbs[crumbs.length - 1].id;
+      return S.active;
+    }
+
+    function buildBreadcrumb(crumbs) {
+      if (!crumbs || crumbs.length <= 1) return '';
+      return crumbs.map((c, i) => {
+        const isLast = i === crumbs.length - 1;
+        const sep = i > 0 ? '<span class="breadcrumb-sep">›</span>' : '';
+        if (isLast) {
+          return `${sep}<span class="breadcrumb-item current">${c.name}</span>`;
+        }
+        return `${sep}<span class="breadcrumb-item" onclick="navigateToCrumb(${i})">${c.name}</span>`;
+      }).join('');
+    }
+
+    async function navigateInto(subId, subName) {
+      // Init breadcrumb if first time going into subfolder
+      if (!S.breadcrumb[S.active]) {
+        const root = S.folders.find(f => f.id === S.active);
+        const rootName = root ? root.name.replace(/^[\s\S]*?(\w)/, '$1') : S.active;
+        S.breadcrumb[S.active] = [{ id: S.active, name: root ? root.name : S.active }];
+      }
+      S.breadcrumb[S.active].push({ id: subId, name: subName });
+
+      // If already cached (any state including empty array), just render
+      if (Object.prototype.hasOwnProperty.call(S.files, subId)) {
+        renderMain();
+        return;
+      }
+
+      // Not cached yet — initialize and fetch if API key available
+      S.files[subId] = [];
+
+      if (S.apiKey) {
+        await fetchSubFolder(subId);
+      } else {
+        renderMain();
+        toast('Hubungkan API Key untuk memuat isi subfolder', '');
+      }
+    }
+
+    function navigateBack() {
+      const crumbs = S.breadcrumb[S.active];
+      if (!crumbs || crumbs.length <= 1) return;
+      crumbs.pop();
+      renderMain();
+      renderFileList();
+    }
+
+    function navigateToCrumb(index) {
+      const crumbs = S.breadcrumb[S.active];
+      if (!crumbs) return;
+      S.breadcrumb[S.active] = crumbs.slice(0, index + 1);
+      renderMain();
+      renderFileList();
+    }
+
+    function fetchCurrentFolder() {
+      const folderId = getActiveFolderId();
+      fetchSubFolder(folderId);
+    }
+
+    async function fetchSubFolder(folderId) {
+      if (!S.apiKey) {
+        toast('Hubungkan API Key untuk memuat subfolder', '');
+        return;
+      }
+      S.scanning = true;
+      setStatus('scanning');
+      if (S.active) renderMain(); // show spinner
+
+      try {
+        const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+        const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime,webViewLink,createdTime)');
+        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&key=${S.apiKey}&pageSize=1000&orderBy=modifiedTime+desc`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        S.files[folderId] = data.files || [];
+        toast(`✅ ${S.files[folderId].length} item dimuat`, 'ok');
+      } catch (e) {
+        S.files[folderId] = [];
+        toast('❌ Gagal: ' + e.message, 'error');
+      } finally {
+        S.scanning = false;
+        setStatus(S.connected ? 'connected' : 'demo');
+        renderMain();
+      }
+    }
     // ─────────────────────────────────────────────────────────────
 
     // ── TXT Import ──────────────────────────────────────────────
